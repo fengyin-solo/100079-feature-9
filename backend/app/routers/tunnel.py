@@ -30,6 +30,20 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/options")
+def list_options() -> dict[str, Any]:
+    """养护计划等关联模块的隧道下拉：待完善记录一并返回，由前端标注并禁用。"""
+    items = service.list_options()
+    return {"items": items}
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出隧道设施清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "tunnel", "total": total, "items": items}
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条隧道设施明细；不存在时给出可读的错误说明。"""
@@ -41,11 +55,22 @@ def get_entry(entry_id: int) -> dict:
 
 @router.post("", response_model=ActionResult)
 def create_entry(payload: EntryPayload) -> ActionResult:
-    """登记一条隧道设施，缺字段时说明原因而不是静默丢弃。"""
-    entry, missing = service.create_entry(payload.values)
+    """登记一条隧道设施，缺字段或长度不合法时说明原因而不是静默丢弃。"""
+    entry, missing, length_issue = service.create_entry(payload.values)
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
+    if length_issue:
+        return ActionResult(ok=False, message=length_issue)
     return ActionResult(ok=True, message="隧道设施已登记", entry=entry)
+
+
+@router.put("/{entry_id}", response_model=ActionResult)
+def update_entry(entry_id: int, payload: EntryPayload) -> ActionResult:
+    """修改隧道设施（含长度补齐）；隧道长度非数字或超出区间时不允许保存并说明原因。"""
+    entry, message = service.update_entry(entry_id, payload.values)
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=entry)
 
 
 @router.post("/{entry_id}/actions", response_model=ActionResult)
@@ -56,10 +81,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出隧道设施清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "tunnel", "total": total, "items": items}
